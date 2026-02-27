@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>4-8 Breathing</title>
+  <style>
+    :root { --bg:#0b0f14; --fg:#e8eef7; --card:rgba(255,255,255,.06); --line:rgba(255,255,255,.12); }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); }
+    .card { width: min(560px, 94vw); padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+    h1 { font-size: 16px; margin: 0 0 10px; opacity: .9; }
+    .top { display:flex; gap:16px; align-items:center; flex-wrap: wrap; }
+    .left { flex: 1 1 220px; }
+    .phase { font-size: 40px; font-weight: 800; margin: 6px 0; }
+    .count { font-size: 64px; font-weight: 900; margin: 6px 0 10px; }
+    .sub { font-size: 13px; opacity: .75; line-height: 1.6; }
+    .row { display:flex; gap:12px; flex-wrap: wrap; margin-top: 12px; }
+    button { flex: 1; padding: 14px 16px; border: 0; border-radius: 12px; font-size: 16px; font-weight: 800; cursor: pointer; }
+    #start { background: #2e7dff; color: white; }
+    #stop { background: rgba(255,255,255,.12); color: var(--fg); }
+    .opts { margin-top: 14px; display:flex; gap:12px; flex-wrap: wrap; align-items:flex-end; }
+    label { font-size: 12px; opacity: .9; display:flex; gap:8px; align-items:center; }
+    input[type="number"]{
+      width:76px; padding:8px; border-radius:10px; border:1px solid rgba(255,255,255,.18);
+      background: rgba(0,0,0,.25); color: var(--fg);
+    }
+    input[type="checkbox"]{ transform: scale(1.15); }
+    .pill { font-size: 12px; opacity: .85; padding: 8px 10px; border:1px solid rgba(255,255,255,.14); border-radius: 999px; }
+    .divider { height:1px; background: rgba(255,255,255,.10); margin: 14px 0; }
+
+    /* 円アニメ */
+    .vizWrap { flex: 0 0 auto; width: 200px; height: 200px; display:grid; place-items:center; }
+    .ring {
+      width: 180px; height: 180px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.16);
+      display:grid; place-items:center;
+      position: relative;
+      overflow:hidden;
+    }
+    .bubble {
+      width: 110px; height: 110px; border-radius: 50%;
+      background: rgba(46,125,255,.20);
+      transform: scale(1);
+      transition: transform 800ms linear;
+      filter: blur(.1px);
+    }
+    .ringText {
+      position:absolute; inset:0; display:grid; place-items:center;
+      font-weight:800; font-size:12px; opacity:.85;
+      text-align:center; padding: 0 16px;
+      pointer-events:none;
+    }
+
+    /* 履歴 */
+    .history { font-size: 13px; opacity: .88; }
+    .history .title { font-weight: 800; margin-bottom: 6px; }
+    .history ul { margin: 6px 0 0; padding-left: 18px; }
+    .history li { margin: 4px 0; opacity: .9; }
+    .history .muted { opacity: .7; }
+    .history .actions { margin-top: 10px; display:flex; gap:10px; flex-wrap: wrap; }
+    .smallbtn { padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 800; background: rgba(255,255,255,.10); color: var(--fg); border: 1px solid rgba(255,255,255,.12); cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>4-8 呼吸</h1>
+
+    <div class="top">
+      <div class="left">
+        <div class="phase" id="phase">Ready</div>
+        <div class="count" id="count">—</div>
+        <div class="sub" id="status">Startで開始。息苦さ・気持ち悪さが出たらStop。</div>
+      </div>
+
+      <div class="vizWrap">
+        <div class="ring">
+          <div class="bubble" id="bubble"></div>
+          <div class="ringText" id="ringText">視覚ガイド</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="start">Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+
+    <div class="opts">
+      <label>吸う(秒) <input id="inSec" type="number" min="1" max="20" value="4"></label>
+      <label>吐く(秒) <input id="outSec" type="number" min="1" max="30" value="8"></label>
+
+      <label>自動停止: サイクル <input id="cycles" type="number" min="1" max="60" value="5"></label>
+      <label>または 分 <input id="minutes" type="number" min="1" max="30" value=""></label>
+
+      <label class="pill"><input id="beep" type="checkbox"> ビープ</label>
+      <label class="pill"><input id="vibe" type="checkbox"> バイブ</label>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="history">
+      <div class="title">履歴（端末内に保存）</div>
+      <div class="muted" id="histSummary">—</div>
+      <ul id="histList"></ul>
+      <div class="actions">
+        <button class="smallbtn" id="export">エクスポート（JSON）</button>
+        <button class="smallbtn" id="clearHist">履歴クリア</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ---- UI ----
+  const phaseEl = document.getElementById('phase');
+  const countEl = document.getElementById('count');
+  const statusEl = document.getElementById('status');
+  const startBtn = document.getElementById('start');
+  const stopBtn  = document.getElementById('stop');
+
+  const inSecEl  = document.getElementById('inSec');
+  const outSecEl = document.getElementById('outSec');
+  const cyclesEl = document.getElementById('cycles');
+  const minutesEl= document.getElementById('minutes');
+  const beepEl   = document.getElementById('beep');
+  const vibeEl   = document.getElementById('vibe');
+
+  const bubbleEl = document.getElementById('bubble');
+  const ringTextEl = document.getElementById('ringText');
+
+  const histSummaryEl = document.getElementById('histSummary');
+  const histListEl = document.getElementById('histList');
+  const exportBtn = document.getElementById('export');
+  const clearHistBtn = document.getElementById('clearHist');
+
+  // ---- State ----
+  let timer = null;
+  let state = 'idle'; // 'in' | 'out'
+  let remaining = 0;
+
+  let startedAt = null;
+  let elapsedSec = 0;
+
+  let targetCycles = 5;
+  let doneCycles = 0; // 1 cycle = in+out
+  let inSec = 4, outSec = 8;
+
+  let autoStopAtSec = null; // minutes-based
+  let wakeLock = null;
+
+  // ---- Audio ----
+  let audioCtx = null;
+  function beep(freq=660, ms=70) {
+    if (!beepEl.checked) return;
+    audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = freq;
+    g.gain.value = 0.05;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    setTimeout(() => o.stop(), ms);
+  }
+  function vibrate(ms=50) {
+    if (!vibeEl.checked) return;
+    if (navigator.vibrate) navigator.vibrate(ms);
+  }
+
+  // ---- History (localStorage) ----
+  const LS_KEY = 'breath48_history_v1';
+  function loadHist() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
+    catch { return []; }
+  }
+  function saveHist(arr) {
+    localStorage.setItem(LS_KEY, JSON.stringify(arr));
+  }
+  function fmtDate(ts) {
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+  }
+  function renderHist() {
+    const hist = loadHist();
+    histListEl.innerHTML = '';
+    if (hist.length === 0) {
+      histSummaryEl.textContent = '記録なし';
+      return;
+    }
+    const last7 = hist.slice(-7);
+    const total = hist.length;
+    const latest = hist[hist.length - 1];
+    histSummaryEl.textContent = `全${total}件 / 最新: ${fmtDate(latest.startedAt)}（${latest.totalSeconds}s, ${latest.inSec}-${latest.outSec}, ${latest.cycles} cycles）`;
+
+    // newest first in list (max 10)
+    const show = hist.slice(-10).reverse();
+    for (const item of show) {
+      const li = document.createElement('li');
+      li.textContent = `${fmtDate(item.startedAt)} — ${item.totalSeconds}s / ${item.inSec}-${item.outSec} / ${item.cycles} cycles`;
+      histListEl.appendChild(li);
+    }
+  }
+
+  // ---- Helpers ----
+  function setUI(running) {
+    startBtn.disabled = running;
+    stopBtn.disabled = !running;
+    inSecEl.disabled = running;
+    outSecEl.disabled = running;
+    cyclesEl.disabled = running;
+    minutesEl.disabled = running;
+  }
+
+  function clampInt(v, min, max, fallback) {
+    v = Number(v);
+    if (!Number.isFinite(v)) return fallback;
+    v = Math.trunc(v);
+    return Math.min(max, Math.max(min, v));
+  }
+
+  function updateVizForPhase(phase) {
+    // inhale: expand; exhale: shrink
+    if (phase === 'in') {
+      bubbleEl.style.transform = 'scale(1.55)';
+      ringTextEl.textContent = '吸う（鼻でも口でもOK）';
+    } else if (phase === 'out') {
+      bubbleEl.style.transform = 'scale(0.85)';
+      ringTextEl.textContent = '吐く（長く、静かに）';
+    } else {
+      bubbleEl.style.transform = 'scale(1.0)';
+      ringTextEl.textContent = '視覚ガイド';
+    }
+  }
+
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+    } catch {}
+  }
+  async function releaseWakeLock() {
+    try { await wakeLock?.release(); } catch {}
+    wakeLock = null;
+  }
+
+  // ---- Core loop ----
+  function tick() {
+    elapsedSec += 1;
+
+    // minutes-based autostop
+    if (autoStopAtSec !== null && elapsedSec >= autoStopAtSec) {
+      stop(true);
+      return;
+    }
+
+    remaining -= 1;
+    countEl.textContent = remaining;
+
+    if (remaining <= 0) {
+      if (state === 'in') {
+        state = 'out';
+        remaining = outSec;
+        phaseEl.textContent = '吐く';
+        updateVizForPhase('out');
+        beep(440); vibrate(30);
+      } else {
+        // out -> in : cycle completed
+        doneCycles += 1;
+
+        if (doneCycles >= targetCycles) {
+          stop(true);
+          return;
+        }
+
+        state = 'in';
+        remaining = inSec;
+        phaseEl.textContent = '吸う';
+        updateVizForPhase('in');
+        beep(660); vibrate(30);
+      }
+      countEl.textContent = remaining;
+      statusEl.textContent = `経過 ${elapsedSec}s / ${doneCycles}/${targetCycles} cycles`;
+    }
+  }
+
+  function start() {
+    inSec = clampInt(inSecEl.value, 1, 20, 4);
+    outSec = clampInt(outSecEl.value, 1, 30, 8);
+    targetCycles = clampInt(cyclesEl.value, 1, 60, 5);
+
+    const minsRaw = String(minutesEl.value || '').trim();
+    if (minsRaw !== '') {
+      const mins = clampInt(minsRaw, 1, 30, null);
+      autoStopAtSec = mins * 60;
+    } else {
+      autoStopAtSec = null;
+    }
+
+    doneCycles = 0;
+    elapsedSec = 0;
+    startedAt = Date.now();
+
+    state = 'in';
+    remaining = inSec;
+
+    phaseEl.textContent = '吸う';
+    countEl.textContent = remaining;
+    statusEl.textContent = `経過 0s / 0/${targetCycles} cycles` + (autoStopAtSec ? `（最大 ${autoStopAtSec}s）` : '');
+    updateVizForPhase('in');
+
+    setUI(true);
+    beep(660); vibrate(30);
+
+    timer = setInterval(tick, 1000);
+    requestWakeLock();
+  }
+
+  function stop(completed=false) {
+    if (timer) clearInterval(timer);
+    timer = null;
+
+    // save history if started
+    if (startedAt) {
+      const hist = loadHist();
+      hist.push({
+        startedAt,
+        totalSeconds: elapsedSec,
+        inSec, outSec,
+        cycles: doneCycles + (completed ? 1 : 0), // completed case may stop right at boundary; keep simple
+        completed: !!completed
+      });
+      // keep last 200
+      if (hist.length > 200) hist.splice(0, hist.length - 200);
+      saveHist(hist);
+      renderHist();
+    }
+
+    startedAt = null;
+    autoStopAtSec = null;
+    state = 'idle';
+    remaining = 0;
+
+    phaseEl.textContent = completed ? 'Done' : 'Stopped';
+    countEl.textContent = '—';
+    statusEl.textContent = completed ? '自動停止しました。通常呼吸へ。' : '停止しました。通常呼吸へ。';
+    updateVizForPhase('idle');
+
+    setUI(false);
+    beep(330, 80); vibrate(20);
+    releaseWakeLock();
+  }
+
+  // ---- Events ----
+  startBtn.addEventListener('click', start);
+  stopBtn.addEventListener('click', () => stop(false));
+
+  exportBtn.addEventListener('click', async () => {
+    const data = loadHist();
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    try {
+      // iOSも概ね動く方式
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'breath48_history.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+  });
+
+  clearHistBtn.addEventListener('click', () => {
+    localStorage.removeItem(LS_KEY);
+    renderHist();
+  });
+
+  // initial render
+  renderHist();
+})();
+</script>
+</body>
+</html>
