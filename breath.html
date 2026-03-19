@@ -289,15 +289,15 @@
   function start() {
     inSec = clampInt(inSecEl.value, 1, 20, 4);
     outSec = clampInt(outSecEl.value, 1, 30, 8);
-    targetCycles = clampInt(cyclesEl.value, 1, 60, 5);
-
     const minsRaw = String(minutesEl.value || '').trim();
-    if (minsRaw !== '') {
-      const mins = clampInt(minsRaw, 1, 30, null);
-      autoStopAtSec = mins * 60;
-    } else {
-      autoStopAtSec = null;
-    }
+if (minsRaw !== '') {
+  const mins = clampInt(minsRaw, 1, 30, null);
+  autoStopAtSec = mins * 60;
+  targetCycles = Infinity;   // 分モードではサイクル停止を無効化
+} else {
+  autoStopAtSec = null;
+  targetCycles = clampInt(cyclesEl.value, 1, 60, 5);
+}
 
     doneCycles = 0;
     elapsedSec = 0;
